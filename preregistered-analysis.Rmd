@@ -1,0 +1,167 @@
+---
+title: "Pre-registered analysis"
+author: "Ben Smith"
+date: "4/6/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup2, include=FALSE}
+library(ggplot2)
+library(lme4)
+source("load_and_preprocess_compiled_data20180330.R")
+
+print(data.itc[,.N,by=.(SubjectUniqueID,ConditionCode)] %>% .[,.N,by=ConditionCode])
+
+```
+
+
+```{r setup3, include=FALSE}
+#we were going to throw out subjects with lots of L or R, subjects with very low k-values, subjects with low response rates, or where they choose less than 16.7% of LEFT or RIGHT or 1 or 2 responses.
+
+too_selective_subjs<-data.itc[,.(LeftProp=sum(ChoiceKey==1,na.rm = TRUE)/sum(!is.na(ChoiceKey)),RightProp=sum(ChoiceKey==2,na.rm = TRUE)/sum(!is.na(ChoiceKey)),finalK=endingK[.N]),by=.(SubjectUniqueID)] %>% 
+  .[LeftProp<.167 | LeftProp>(1-.167) | finalK<=0.0001,SubjectUniqueID]
+data.itc<-data.itc[!(SubjectUniqueID %in% too_selective_subjs)]
+
+data.itc[,.(NAChoices=sum(is.na(ChoiceKey))),by=.(SubjectUniqueID)] %>% .[order(NAChoices)]
+table(data.itc[SubjectUniqueID=="M730ARVGMonApr092018184028GMT0200CEST37168831",.(Choice,ChoiceKey,SSonLorR)])
+```
+## Intro
+
+This analysis closely folloiws the analysis that I prespecified before collecting data on https://osf.io/8te4b/ . At that location, it is embargoed, but it is also available at https://osf.io/uhgwn/ for our team internally.
+
+##Deviation from pre-registration
+
+The SmallerSooner amount in the FixedAmount condition changed from \$0.50 to \$0.40, after the first round, in which it seemed like subjects in that condition were too strongly biased toward SmallerSooner.
+
+Due to a technical error, one group of subjects were incorrectly told rewards were real when they were actually hypothetical. These have been excluded from the current analysis.
+
+We introduced an extra between-subjects variable, Hypothetical vs. Real, that was not described on the uploaded pre-registration (I'd intended to upload this, but uploaded the older version of the pre-registration by mistake). To maintain a 3x2x2 between-subjects design, SalienceCondition was moved to be a within-subjects, between-trials variable.
+
+## Aims/hypotheses
+
+For this study, we want to test this predictions relevant to construal level:
+
+1. A Construal Level manipulation has an effect on temporal discounting, such that more abstract construal level manipulations predict lower rates of temporal discounting
+  a. This relationship will be observable with random construal order
+  b. This relationship will be observable with the abstract to concrete and the concrete to abstract construal order conditions, OR
+  c. This relationship will only be observable in the direction observed by Yi et al. (2017), i.e., only among participants who view the concrete condition prior to the abstract prediction
+  d. This relationship will be observable in the interleaved conditions
+  e. This relationship will be observable in the blocked conditions
+
+We also want to test these predictions relevant to sugar manipulation:
+
+2. Across other manipulations, participants will exhibit steeper delay discounting in test blocks in which Amount is fixed compared to blocks in which Delay is fixed (“block type”).
+3. There will be an interaction between block type and fatigue/appetite, such that high appetite/fatigue scores will be associated with the larger block type differential in discounting
+
+### Supplementary predictions:
+1. (as above)
+  f. This relationship will be observable when displaying hypothetical rewards
+  g. This relationship will be observable when displaying real rewards
+
+## Measures
+
+We can characterize subject’s choice in each trial in two ways:
+
+1. the absolute choice of LargerLater vs. SmallerSooner
+2. the deviation of each choice from the expected present value, estimated the expected present value using the estimate for the subject’s k value obtained at the end of each run of the task.
+
+## Results
+
+### 1. A Construal Level manipulation has an effect on temporal discounting, such that more abstract construal level manipulations predict lower rates of temporal discounting
+
+```{r}
+#absolute choice of largerlater vs. smallersooner
+#needs to be further pre-processed so every row reflects a trial with a construal level and a choice
+table(data.to.analyze$ConstrualConditionAllocated,data.to.analyze$Choice)
+table(data.to.analyze$Choice,data.to.analyze$Choice01)
+table(is.na(data.to.analyze$ConstrualConditionAllocated))
+table(is.na(data.to.analyze$Choice))
+table(is.na(data.to.analyze$Choice))
+
+choicemodel.base.VarySubSlope<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),data.itc, control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),data.itc, control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope)
+summary(choicemodel.choice.VarySubSlope)
+anova(choicemodel.base.VarySubSlope,choicemodel.choice.VarySubSlope)
+
+
+```
+#### This relationship will be observable with random construal order
+```{r}
+
+choicemodel.base.VarySubSlope.rand<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),data.itc[BlockDesignRandomized==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope.rand<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),data.itc[BlockDesignRandomized==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope.rand)
+summary(choicemodel.choice.VarySubSlope.rand)
+anova(choicemodel.base.VarySubSlope.rand,choicemodel.choice.VarySubSlope.rand)
+
+```
+Not when using random construal order at all.
+
+#### This relationship will be observable with the construal-ordered conditions
+```{r}
+
+choicemodel.base.VarySubSlope.AF<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),data.itc[BlockDesignAbstractFirst==TRUE], control = lmerControl(optCtrl=list(method="L-BFGS-B")))
+
+library(optimx)
+choicemodel.base.VarySubSlope.CF<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),data.itc[BlockDesignConcreteFirst==TRUE], control = lmerControl(optimizer="optimx",optCtrl=list(method="L-BFGS-B")))
+choicemodel.choice.VarySubSlope.AF<-lmer(AbstractionLevel~ChoiceIsLL+
+                                           (1+ChoiceIsLL|SubjectUniqueID),data.itc[BlockDesignAbstractFirst==TRUE], control = lmerControl(optimizer = "bobyqa"))
+
+choicemodel.choice.VarySubSlope.CF<-lmer(AbstractionLevel~ChoiceIsLL+
+                                           (1+ChoiceIsLL|SubjectUniqueID),data.itc[BlockDesignConcreteFirst==TRUE], control = lmerControl(optimizer = "bobyqa"))
+
+summary(choicemodel.choice.VarySubSlope.AF)
+anova(choicemodel.base.VarySubSlope.AF,choicemodel.choice.VarySubSlope.AF)
+
+summary(choicemodel.choice.VarySubSlope.CF)
+anova(choicemodel.base.VarySubSlope.CF,choicemodel.choice.VarySubSlope.CF)
+
+```
+
+#### This relationship will only be observable among participatns who view the concrete condition prior to the abstract prediction
+
+As above - this doesn't quite check out.
+
+
+#### This relationship will only be observable among participants in interleaved conditions
+(because the interleaved design will have a more immediate impact on the construal condition)
+```{r}
+choicemodel.base.VarySubSlope.inter<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),data.itc[TaskArrangementBlocked==FALSE], control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope.inter<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),data.itc[TaskArrangementBlocked==FALSE], control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope.inter)
+summary(choicemodel.choice.VarySubSlope.inter)
+anova(choicemodel.base.VarySubSlope.inter,choicemodel.choice.VarySubSlope.inter)
+
+```
+
+#### This relationship will only be observable among participants in blocked conditions
+(because the effect is more concentrated)
+```{r}
+
+choicemodel.base.VarySubSlope.inter<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),data.itc[TaskArrangementBlocked==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope.inter<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),data.itc[TaskArrangementBlocked==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope.inter)
+summary(choicemodel.choice.VarySubSlope.inter)
+anova(choicemodel.base.VarySubSlope.inter,choicemodel.choice.VarySubSlope.inter)
+
+```
+
+
+## Possible thing to try out in the scanner.
+
+This is what I would like to try in the scanner. Does Interleaved work where we've got a concrete to abstract design?
+
+
+```{r}
+
+t.test(AbstractionLevel~Choice,data.to.analyze[TaskArrangement=="TasksInterleaved" & Group=="BlockDesign_concrete_first"]) 
+t.test(AbstractionLevel~Choice,data.to.analyze[TaskArrangement=="TasksBlocked" & Group=="BlockDesign_concrete_first"]) 
+t.test(AbstractionLevel~Choice,data.to.analyze[TaskArrangement=="TasksBlocked" & Group=="BlockDesign_abstract_first"]) 
+
+```
+

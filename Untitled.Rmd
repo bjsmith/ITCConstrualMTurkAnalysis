@@ -1,0 +1,32 @@
+---
+title: "Pre-registered analysis"
+author: "Ben Smith"
+date: "4/6/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup2, include=FALSE}
+library(ggplot2)
+source("load_and_preprocess_compiled_data20180330.R")
+data.to.analyze<-data.main_w_c$RewardReality[]
+```
+## Intro
+
+This analysis closely folloiws the analysis that 
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

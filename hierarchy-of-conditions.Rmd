@@ -1,0 +1,266 @@
+---
+title: "hierarchical model of conditions"
+author: "Ben Smith"
+date: "4/7/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r setup2, include=FALSE}
+library(ggplot2)
+source("load_and_preprocess_compiled_data20180330.R")
+data.itc<-data.itc[EstimatedSubjKIndifferenceAllTrials!=Inf & !is.nan(EstimatedSubjKIndifferenceAllTrials) & !is.na(EstimatedSubjKIndifferenceAllTrials)]
+which(is.na(data.itc$EstimatedSubjKIndifferenceAllTrials))
+data.itc$LogKIndiff<-log(data.itc$EstimatedSubjKIndifferenceBySalienceCondition)
+data.itc<-data.itc[(LogKIndiff> -1000) & (LogKIndiff< 1000)]
+
+
+
+```
+
+
+```{r setup3, include=FALSE}
+#we were going to throw out subjects with lots of L or R, subjects with very low k-values, subjects with low response rates, or where they choose less than 16.7% of LEFT or RIGHT or 1 or 2 responses.
+
+too_selective_subjs<-data.itc[,.(LeftProp=sum(ChoiceKey==1,na.rm = TRUE)/sum(!is.na(ChoiceKey)),RightProp=sum(ChoiceKey==2,na.rm = TRUE)/sum(!is.na(ChoiceKey)),finalK=endingK[.N]),by=.(SubjectUniqueID)] %>% 
+  .[LeftProp<.167 | LeftProp>(1-.167) | finalK<=0.0001,SubjectUniqueID]
+data.itc<-data.itc[!(SubjectUniqueID %in% too_selective_subjs)]
+
+data.itc[,.(NAChoices=sum(is.na(ChoiceKey))),by=.(SubjectUniqueID)] %>% .[order(NAChoices)]
+table(data.itc[SubjectUniqueID=="M730ARVGMonApr092018184028GMT0200CEST37168831",.(Choice,ChoiceKey,SSonLorR)])
+```
+## Intro
+
+In the earlier analysis, I used a simple t-test to test separately for each condition. In this analysis, I'll use a hierarchical model to:
+
+ - account for random effect variance of subject and subject run (1-24)
+ - test for the effect of each of our conditions
+ 
+## Overview of conditions
+
+We have the following conditions in this dataset:
+```{r}
+data.itc[,.(SubjectCount=length(unique(SubjectUniqueID)),TrialCount=.N,TrialsPerSubject=.N/length(unique(SubjectUniqueID))),
+                by=.(ConditionCode,Group,RewardReality,TaskArrangement,salienceCondition)]
+
+```
+
+And we want to get the random effects for each of these 
+```{r}
+library(lme4)
+
+base.model<-glmer(ChoiceIsLL~AbstractionLevel + LogKIndiff+ (AbstractionLevel|SubjectUniqueID), data.itc, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+summary(base.model)
+```
+
+When we allow for individual slopes for subjects, there's not a significant effect of AbstractionLevel on its own. However, we may identify that specific conditions induce interactions with AbstractionLevel
+
+```{r}
+library(lme4)
+
+interaction.model<-glmer(ChoiceIsLL~
+                           AbstractionLevel + 
+                           AbstractionLevel:TaskArrangement + 
+                           AbstractionLevel:Group + 
+                           AbstractionLevel:salienceCondition + 
+                           AbstractionLevel:RewardReality + 
+                           (AbstractionLevel|SubjectUniqueID), data.itc, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+levels(data.itc$ChoiceIsLL)
+summary(interaction.model)
+
+```
+
+A more basic model; just values pre-specified
+
+```{r}
+library(lme4)
+
+
+interaction.prespec.model<-glmer(ChoiceIsLL~
+                           AbstractionLevel + 
+                           AbstractionLevel:TaskArrangement + 
+                           AbstractionLevel:Group + 
+                           (AbstractionLevel|SubjectUniqueID), data.itc, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+summary(interaction.prespec.model)
+
+```
+
+Not much to be seen here. What if we only do the second two trials in the data, i.e., once subjects have got settled on a particular k-value?
+
+```{r}
+library(lme4)
+data.itc.r34<-data.itc[runid %in% c(2,3)]
+
+interaction.prespec.model.run34<-glmer(ChoiceIsLL~
+                           AbstractionLevel + 
+                           AbstractionLevel:TaskArrangementBlocked + 
+                             AbstractionLevel:BlockDesignConcreteFirst + 
+                             AbstractionLevel:BlockDesignAbstractFirst + 
+                           AbstractionLevel:TaskArrangementBlocked:BlockDesignConcreteFirst + 
+                           AbstractionLevel:TaskArrangementBlocked:BlockDesignAbstractFirst + 
+                           (1+AbstractionLevel|SubjectUniqueID), data.itc.r34, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+levels(data.itc$ChoiceIsLL)
+summary(interaction.prespec.model.run34)
+
+```
+
+
+These don't work! The best we could do from here is try to get a better outcome variable. For instance, perhaps we can predict change in error from finalK rather than anything else. The more a subject is moving away from their finalK, the more that is attributable to the condition rather than the item.
+Still, I don't know if this will help me detect differences between conditions. I didn't measure differences between conditions.
+
+
+
+We could try to look at just the key variables
+
+```{r}
+library(lme4)
+
+
+interaction.prespec.taskonly<-glmer(ChoiceIsLL~
+                           AbstractionLevel + 
+                           AbstractionLevel:TaskArrangement + 
+                           (AbstractionLevel|SubjectUniqueID), data.itc, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+levels(data.itc$ChoiceIsLL)
+summary(interaction.prespec.model)
+
+```
+How do I reconcile this with the t.test effects?
+
+Should run a t.test again, show the effect, and then creep lowly toward the lm models above and work out where the variance is disappearing to.
+
+This is the basic t-test that appears to show an effect:
+
+```{r}
+t.test(AbstractionLevel~ChoiceIsLL,data.itc)
+```
+
+Where subjects chose LL, the preceding construal trial had a higher average abstraction level than where subjects chose SS.
+
+Let's see this as a linear model.
+```{r}
+summary(lm(AbstractionLevel~ChoiceIsLL,data.itc))
+```
+As expected; the same thing.
+
+But we need to account for within subject effects to say this was a genuine effect.
+
+```{r}
+summary(lm(AbstractionLevel~ChoiceIsLL+SubjectUniqueID,data.itc))
+```
+
+Treating these as a single-level model with SubjectID as a factor, we still seem to see an influence of Choice on abstraction level.
+
+What if we do a simple hierarchical model, only allowing for varying intercepts for subject IDs? I expect this will give us the same exact effect...
+
+```{r}
+library(lme4)
+choicemodel.base.VarySubIntercept<-lmer(AbstractionLevel~(1|SubjectUniqueID),data.itc, control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubIntercept<-lmer(AbstractionLevel~ChoiceIsLL+(1|SubjectUniqueID),data.itc, control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubIntercept)
+summary(choicemodel.choice.VarySubIntercept)
+anova(choicemodel.base.VarySubIntercept,choicemodel.choice.VarySubIntercept)
+
+```
+
+OK, but that model could be criticized because it doesn't allow for varying slopes for different subjects. What if we allow for that?
+
+```{r}
+choicemodel.base.VarySubSlope<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),data.itc, control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),data.itc, control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope)
+summary(choicemodel.choice.VarySubSlope)
+anova(choicemodel.base.VarySubIntercept,choicemodel.base.VarySubSlope,choicemodel.choice.VarySubSlope)
+
+```
+
+So we don't quite get an effect here looking at the data as a whole.
+
+But we did make some specific predictions; let's look at each of those interaction possibilities.
+
+```{r}
+choicemodel2.base.VarySubSlope<-lmer(AbstractionLevel~(ChoiceIsLL|SubjectUniqueID),
+                                     data.itc[Group=="BlockDesign_concrete_first"], control = lmerControl(optimizer = "bobyqa"))
+choicemodel2.Group.VarySubSlope<-lmer(AbstractionLevel~ChoiceIsLL+(ChoiceIsLL|SubjectUniqueID),
+                                      data.itc[Group=="BlockDesign_concrete_first"], control = lmerControl(optimizer = "bobyqa"))
+#summary(choicemodel2.base.VarySubSlope)
+summary(choicemodel2.Group.VarySubSlope)
+anova(choicemodel2.base.VarySubSlope,choicemodel2.Group.VarySubSlope)
+
+```
+
+Nope.
+
+```{r}
+choicemodel2a.base.VarySubSlope<-lmer(AbstractionLevel~(ChoiceIsLL|SubjectUniqueID),
+                                     data.itc[TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "bobyqa"))
+choicemodel2a.VarySubSlope<-lmer(AbstractionLevel~ChoiceIsLL+(ChoiceIsLL|SubjectUniqueID),
+                                      data.itc[TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "bobyqa"))
+summary(choicemodel2a.base.VarySubSlope)
+summary(choicemodel2a.VarySubSlope)
+anova(choicemodel2a.base.VarySubSlope,choicemodel2a.VarySubSlope)
+
+```
+
+
+Try something else:
+
+```{r}
+
+choicemodel3.base.VarySubSlope<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),
+                                     data.itc[Group=="BlockDesign_concrete_first" & TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "Nelder_Mead"))
+
+choicemodel3.VarySubSlope<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),
+                                      data.itc[Group=="BlockDesign_concrete_first" & TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "Nelder_Mead"))
+#summary(choicemodel3.base.VarySubSlope)
+summary(choicemodel3.VarySubSlope)
+anova(choicemodel3.base.VarySubSlope,choicemodel3.VarySubSlope)
+dim(data.itc[Group=="BlockDesign_concrete_first" & TaskArrangement=="TasksBlocked"] %>% .[,.N,by=SubjectUniqueID])
+```
+
+This one is marginal. If we look only at subjects within the concrete first, TasksBlocked condition and ignore all others entirely, we get an effect.
+
+That's encouraging!
+
+
+Because we're looking at blocked conditions, perhaps it's only the first few trials after the manipulation where an effect is really noticeable. What if we restrict to those trials?
+
+
+
+```{r}
+#WANT TO IDENTIFY JUST TRIALS IN THE SECOND HALF OF THE CONDITION
+#NOT SURE HOW TO DO THAT! BUT WE CAN FIND OUT AT SOME POINT...
+
+data.itc.earlyblocktrials<-data.itc[Trial<=10]
+choicemodel4.base.VarySubSlope<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),
+                                     data.itc.earlyblocktrials[Group=="BlockDesign_concrete_first" & TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "bobyqa"))
+
+choicemodel4.VarySubSlope<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),
+                                      data.itc.earlyblocktrials[Group=="BlockDesign_concrete_first" & TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "bobyqa"))
+summary(choicemodel4.base.VarySubSlope)
+summary(choicemodel4.VarySubSlope)
+anova(choicemodel4.base.VarySubSlope,choicemodel4.VarySubSlope)
+
+
+```
+
+Steve suggested: what if I just look at the extreme conditions?
+
+```{r}
+data.itc.extreme<-data.itc[AbstractionLevel %in% c(1,4)]
+choicemodel5.base.VarySubSlope<-lmer(AbstractionLevel~(1+ChoiceIsLL|SubjectUniqueID),
+                                     data.itc.extreme[Group=="BlockDesign_concrete_first" & TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "bobyqa"))
+choicemodel5.VarySubSlope<-lmer(AbstractionLevel~ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID),
+                                      data.itc.extreme[Group=="BlockDesign_concrete_first" & TaskArrangement=="TasksBlocked"], control = lmerControl(optimizer = "bobyqa"))
+summary(choicemodel5.VarySubSlope)
+
+```
+
+
+
+
+
+

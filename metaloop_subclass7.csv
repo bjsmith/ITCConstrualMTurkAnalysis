@@ -1,0 +1,6 @@
+DisplayS,LoopFile,PreTaskInstructions,RewardRun
+,practice_largeamounts.csv,You will now see two practice trials before you get started.,0
+,design_csv_files/subclass7r0.csv," Are you ready?\nIn this set of choices,\nyou will always choose between\ngetting $20 and $30,\nbut the delay to get the money will go up or down each time.",1
+,design_csv_files/subclass7r1.csv," Are you ready?\nIn this set of choices,\nyou will always choose between\ngetting money in 5 days or 50 days,\nbut the amount of money will go up or down each time.",0
+,design_csv_files/subclass7r2.csv," Are you ready?\nIn this set of choices,\nyou will always choose between\ngetting $20 and $30,\nbut the delay to get the money will go up or down each time.",0
+,design_csv_files/subclass7r3.csv," Are you ready?\nIn this set of choices,\nyou will always choose between\ngetting money in 5 days or 50 days,\nbut the amount of money will go up or down each time.",0

@@ -1,0 +1,10 @@
+base
+ggplot2
+knitr
+Matrix
+lme4
+psych
+data.table
+dplyr
+optimx
+tidyr

@@ -1,0 +1,477 @@
+---
+title: "An mTurk study examining hte link between temporal discounting and abstraction"
+output: html_notebook
+---
+
+
+I'm interested in the link between temporal discounting and abstraction.
+
+This is a follow-up of an earlier analysis where our result didn't come out at all the way we were hoping.
+
+I wanted to re-do the analysis with some improvements to see if we can better detect the effect through improving the quality of our dataset.
+
+
+We've improved the dataset by testing the subjects for their 
+
+## Construal level
+For this study, we want to test this predictions relevant to construal level:
+
+1. A Construal Level manipulation has an effect on temporal discounting, such that more abstract construal level manipulations predict lower rates of temporal discounting
+  a. This relationship will be observable with random construal order
+  b. This relationship will be observable with the abstract to concrete and the concrete to abstract construal order conditions, OR
+  c. This relationship will only be observable in the direction observed by Yi et al. (2017), i.e., only among participants who view the concrete condition prior to the abstract prediction
+  d. This relationship will be observable in the interleaved conditions
+  e. This relationship will be observable in the blocked conditions
+
+
+# Available data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+
+```{r setup2, include=FALSE}
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(lme4)
+source("load_and_preprocess_compiled_data20180330.R")
+
+#data.itc[is.na(EstimatedSubjKIndifferenceAllTrials)]
+
+data.itc<-data.itc[EstimatedSubjKIndifferenceAllTrials!=Inf & !is.nan(EstimatedSubjKIndifferenceAllTrials) & !is.na(EstimatedSubjKIndifferenceAllTrials)]
+
+#filter out subjects at extremes
+data.itc$LogKIndiff<-log(data.itc$EstimatedSubjKIndifferenceBySalienceCondition)
+data.itc<-data.itc[(LogKIndiff> -10000) & (LogKIndiff< 10000)]
+```
+
+
+```{r setup3, include=FALSE}
+#we were going to throw out subjects with lots of L or R, subjects with very low k-values, subjects with low response rates, or where they choose less than 16.7% of LEFT or RIGHT or 1 or 2 responses.
+
+#These are the pre-registered exclusion criteria.
+
+
+exclusion_stats<-data.itc[,.(
+  LeftProp=sum(ChoiceKey==1,na.rm = TRUE)/sum(!is.na(ChoiceKey)),
+  RightProp=sum(ChoiceKey==2,na.rm = TRUE)/sum(!is.na(ChoiceKey)),
+  LeftRightChoices=sum(ChoiceKey==1 | ChoiceKey==2,na.rm=TRUE),
+  ConstrualChoice1Prop=sum(ChoiceConstrual==1,na.rm = TRUE)/sum(!is.na(Answer)),
+  ConstrualChoice2Prop=sum(ChoiceConstrual==2,na.rm = TRUE)/sum(!is.na(Answer)),
+  #LogK=EstimatedSubjKIndifference,
+  finalK=endingK[.N]),by=.(SubjectUniqueID,ConditionCode)]
+
+kvalStats<-data.itc[,.(LogKValBySalienceCondition=log(EstimatedSubjKIndifferenceBySalienceCondition[1]),finalK=log(endingK[.N])),by=.(SubjectUniqueID,ConditionCode,salienceCondition)]
+cor.test(kvalStats[salienceCondition=="DelaySalient"]$finalK,kvalStats[salienceCondition=="DelaySalient"]$LogKValBySalienceCondition)
+cor.test(kvalStats[salienceCondition=="AmountSalient"]$finalK,kvalStats[salienceCondition=="AmountSalient"]$LogKValBySalienceCondition)
+too_selective_subjs<- exclusion_stats%>% 
+  .[LeftProp<.167 | LeftProp>(1-.167) | finalK<=0.0001,SubjectUniqueID]
+data.itc<-data.itc[!(SubjectUniqueID %in% too_selective_subjs)]
+
+data.itc[,.(NAChoices=sum(is.na(ChoiceKey))),by=.(SubjectUniqueID)] %>% .[order(NAChoices)]
+#table(data.itc[SubjectUniqueID=="M730ARVGMonApr092018184028GMT0200CEST37168831",.(Choice,ChoiceKey,SSonLorR)])
+
+```
+
+In our algorithm, we have a discounting parameter, $k$, which indicates how much subjects prefer a reward immediately rather than later. With every trial we try to use our 'best estimate' of their discount rate to present a choice they'll be indifferent to, in order to best gather information about their tipping point.
+
+I followed a prior analysis method to start off with a 'default' k value and then use a very simple algorithm which estimates a better discount rate - simply adjusts it up by 33% or down by 33% until we reach a trade-off point, so we get a graph like
+
+```{r subject_run_example}
+subject.to.show<-unique(data.itc[ConditionCode=="BB4N3XSL", SubjectUniqueID])[[9]]
+
+ggplot(data.itc[SubjectUniqueID==subject.to.show],
+       aes(x=TrialId,y=log(endingK)))+
+  geom_line()+
+  labs(y="Log Discount parameter",x="time",title=paste0("subject ",subject.to.show))
+```
+
+So there is theoretically a constant discounting parameter each subject has, yet we have a varying discount parameter we use to try to set an indifference point. 
+Subjects theoretically have a constant discount rate and responses that differ according to that function, plus noise. So in trials where the 'provisional' k value used to set the indifference point ("|logStartingK|") is higher, it'll be higher *relative to subject's true discount rate* and thus, the higher that provisional kvalue is, the more we'll get LargerLater choices. Does this bear out?
+
+# Preliminary analyses
+
+```{r posthoc_data_cleaning, include=FALSE}
+#Here I'm addressing some data cleaning tasks taht came up that I didn't anticipate and didn't preregister but could be pretty important here.
+#######
+
+#subjects with less than 80 trials recorded (what's going on with them? some kind of technical error?)
+subject.to.show<-unique(data.itc[ConditionCode=="BB4N3XSL", SubjectUniqueID])[[10]]
+
+#this subject has incomplete data! That's weird, isn't it?
+hist(data.itc[,.(TrialCount=.N),SubjectUniqueID]$TrialCount,breaks=40)
+#yes, very few people had incomplete data. what's strange is this one appears to be some kind of technical error. We shouldn't have subjects with this little information
+
+#so how do we deal with this? Let's take the first one we discovered...
+View(data.itc[SubjectUniqueID==subject.to.show])
+
+#only 56 trials. What does the original file look like?
+
+#this subject was presented with everything but they stopped responding for quite a lot of trials.
+
+#do subjects tend to have more k-values 
+
+#there's more to dig into here but I don't know what it's supposed to prove. I need significant amount of time to explore this, I think.
+```
+
+
+Do subjects stabilize their learning rates? That seems like important information to validate what we're doing. We can measure this by adding an index at each point which indicates the number of previous consecutive trials with teh same choice as the current trial. This should theoretically converge to close to 0 as we go through. the task.
+
+
+```{r posthoc_data_cleaning2, echo=FALSE}
+
+
+#get count of consecutive values.
+data.itc[,PreviousMatchingChoices:=sequence(rle(as.character(Choice))$lengths),by=SubjectUniqueID]
+#or, can we, somehow, get the consecutive choices before AND AFTER the current choice?
+data.itc[,ConsecutiveChoices:=rep(rle(as.character(Choice))$lengths,rle(as.character(Choice))$lengths),by=SubjectUniqueID]
+
+test.subj<-data.itc[SubjectUniqueID==unique(data.itc[ConditionCode=="BB4N3XSL", SubjectUniqueID])[[2]]]
+
+#test.subj$ConsecutiveChoices
+#to get subject scores we can do a split; the second half should have a lower average than the first half.
+
+data.itc$SecondHalf<-(data.itc$TrialIdItcSC>20)
+ConstrualChoiceSegmentRecord<-data.itc[,.(ConstrualChoiceMean=mean(ConsecutiveChoices)),by=.(SecondHalf,SubjectUniqueID)] %>% spread(SecondHalf,value = ConstrualChoiceMean,sep = "_")
+
+ConstrualChoiceSegmentRecord$ChangeInConsecutiveValues<-ConstrualChoiceSegmentRecord$SecondHalf_TRUE-ConstrualChoiceSegmentRecord$SecondHalf_FALSE
+#hist(ConstrualChoiceSegmentRecord$ChangeInConsecutiveValues)
+```
+
+The decline occurs, but it's small:
+
+```{r posthoc_data_cleaning3, echo=FALSE}
+summary(lm(ConsecutiveChoices~TrialIdItcSC,data.itc[TrialIdItcSC<=40]))
+
+#what if we only included subjects who had exactly 80 trials?
+data.no.missing<-data.itc[SubjectUniqueID %in% (data.itc[,.(TrialCount=.N),by=SubjectUniqueID] %>% .[TrialCount==80,SubjectUniqueID])]
+
+linear.model.cc<-lm(ConsecutiveChoices~TrialIdItcSC,data.no.missing)
+quadratic.model.cc<-lm(ConsecutiveChoices~TrialIdItcSC+I(TrialIdItcSC^2),data.no.missing)
+anova(linear.model.cc,quadratic.model.cc)
+summary(quadratic.model.cc)
+
+#maximum is going to be specified by the first derivative which is 
+#quadratic.model.cc$coefficients[3]*2*x+quadratic.model.cc$coefficients[2]
+#solving for y=0,
+qmcc.max<-quadratic.model.cc$coefficients[2]/(-quadratic.model.cc$coefficients[3]*2)
+
+```
+
+A quadratic model fits the data significantly better than a linear model, and suggests a rise in consecutive trial from the start until point `r round(qmcc.max,0)` and a fall thereafter. Subjects first picking items randomly to 'try it out', then settling on a strategy as they move on, and picking a set k value, and then moving to waver between LL and SS as our provisional k approaches their own true discount rate would match this pattern.
+
+
+
+```{r posthoc_data_cleaning3_graphics, echo=FALSE}
+
+#now we can plot that 
+#ggplot(data.itc,aes(y=ConsecutiveChoices,x=TrialIdItc,group=SubjectUniqueID,color=SubjectUniqueID))+geom_line()+scale_color_discrete(guide="none")
+#not very useful when looking subject-by-subject
+
+ggplot(data.itc[,.(TrialMean=mean(ConsecutiveChoices),TrialSD=sd(ConsecutiveChoices)),by=.(TrialIdItcSC)],
+       aes(x=TrialIdItcSC,y=TrialMean))+
+  geom_errorbar(aes(ymin=TrialMean-TrialSD,ymax=TrialMean+TrialSD),color="grey")+
+  geom_smooth(method='lm',formula=y~x+I(x^2))+
+  geom_line()+labs(y="Number of consecutive choices at trial",x="Trial ID",title="Number of repeated choices at trial over time, across all subjects and Salience Types")
+
+
+```
+
+
+```{r posthoc_data_cleaning4, echo=FALSE}
+
+View(t(spread(data.no.missing[,.(SubjectUniqueID,ConsecutiveChoices,TrialIdItc)],SubjectUniqueID,value = ConsecutiveChoices)))
+
+```
+
+
+## K logStartingK and LargerLater
+
+
+```{r logstartingKModel, echo=FALSE}
+
+model.logstartingK<-glmer(Choice01~
+                            scale(logStartingK)+
+                            salienceCondition+
+                            scale(TrialId)+
+                            (1+scale(logStartingK)+salienceCondition|SubjectUniqueID)
+                          ,data.itc,family = binomial
+              , control = glmerControl(optimizer = "Nelder_Mead"))
+
+
+logStartingKWithinSubjectCoefficient <- coef(model.logstartingK)$SubjectUniqueID[,2]
+summary(model.logstartingK)
+
+
+```
+
+We can see from here that as the logK Value increases, we're more likely to see the subject choose the LargerLater item.
+
+```{r logstartingKModel2, echo=FALSE}
+hist(logStartingKWithinSubjectCoefficient,breaks=20)
+```
+
+Not all subjects behave this say, but the majority do. 
+
+If subjects don't in fact tend to choose LL more often than SS subjects, it may be they haven't understood or aren't carefully following the instructions. If we remove subjects below the 0 line, we're in a sense retaining quality subjects, and we might have a better test of our ultimate hypothesis, which is a test of the relationship between construal and ITC.
+
+```{r logstartingKModel3, echo=FALSE}
+subjs.to.include<-intersect(rownames(coef(model.logstartingK)$SubjectUniqueID)[logStartingKWithinSubjectCoefficient>=0],
+  ConstrualChoiceSegmentRecord[ChangeInConsecutiveValues<0,SubjectUniqueID])
+data.itc.bestsubj<-data.itc[SubjectUniqueID %in% subjs.to.include]
+
+
+```
+
+#### Descriptive 
+
+We were left with:
+
+```{r, echo=FALSE}
+
+kable(data.itc[,.N, .(SubjectUniqueID,Group,TaskArrangement,RewardReality)] %>% .[,.N,.(RewardReality,Group,TaskArrangement)])
+```
+
+
+
+### Testing
+
+To test each hypothesis, I:
+
+- created a base hierarchical model to predict AbstractionLevel from Choice using random effects only
+- created a test hierarchical model with the variable of interest
+- used anova to test for a significant improvement in model fit using the model fit.
+
+Base model is, for the $i$th trial and $j$th subject
+<!-- http://www.tqmp.org/RegularArticles/vol08-1/p052/p052.pdf-->
+
+
+$$\begin{aligned}
+AbstractionLevel_{i,j}  = & \gamma_{00}+ \gamma_{10}estimatedK_{i,j} + \\
+  & \gamma_{01}Subject_j+\gamma_{11}Subject_j Choice_{i,j}+U_{1j}Choice_{i,j}+U_{0j} +r_{i,j}
+\end{aligned}$$
+
+And the test model just adds one term:
+
+$$\begin{aligned}
+AbstractionLevel_{i,j}  = & \gamma_{00}+\gamma_{10}Choice_{i,j} + \gamma_{10}estimatedK_{i,j} + \\
+  & \gamma_{01}Subject_j+\gamma_{11}Subject_j Choice_{i,j}+U_{1j}Choice_{i,j}+U_{0j} +r_{i,j}
+\end{aligned}$$
+
+***
+
+### H1 Construal level
+
+
+1. A Construal Level manipulation has an effect on temporal discounting, such that more abstract construal level manipulations predict lower rates of temporal discounting
+
+```{r, echo=FALSE}
+#absolute choice of largerlater vs. smallersooner
+#needs to be further pre-processed so every row reflects a trial with a construal level and a choice
+# table(data.to.analyze$ConstrualConditionAllocated,data.to.analyze$Choice)
+# table(data.to.analyze$Choice,data.to.analyze$Choice01)
+# table(is.na(data.to.analyze$ConstrualConditionAllocated))
+# table(is.na(data.to.analyze$Choice))
+# table(is.na(data.to.analyze$Choice))
+# table(is.na(data.itc$EstimatedSubjKIndifferenceAllTrials))
+# table(is.na(data.itc$EstimatedSubjKIndifferenceBySalienceCondition))
+
+
+choicemodel.base.VarySubSlope<-lmer(AbstractionLevel~ LogKIndiff+(1+ChoiceIsLL|SubjectUniqueID)+ LogKIndiff+(1|salienceCondition),
+                                    data.itc.bestsubj, control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope<-lmer(AbstractionLevel~LogKIndiff+ChoiceIsLL+(1+ChoiceIsLL|SubjectUniqueID)+(1|salienceCondition),
+                                      data.itc.bestsubj, control = lmerControl(optimizer = "Nelder_Mead"))
+#summary(choicemodel.base.VarySubSlope)
+summary(choicemodel.choice.VarySubSlope)
+anova(choicemodel.base.VarySubSlope,choicemodel.choice.VarySubSlope)
+
+```
+
+***
+
+### Sub-hypotheses
+
+This relationship will be observable:
+
+```{r, include=FALSE}
+
+choicemodel.base.VarySubSlope.rand<-lmer(AbstractionLevel~ LogKIndiff+(1|salienceCondition)+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[BlockDesignRandomized==TRUE], control = lmerControl(optimizer = "bobyqa"))
+choicemodel.choice.VarySubSlope.rand<-lmer(AbstractionLevel~ChoiceIsLL+ LogKIndiff+(1|salienceCondition)+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[BlockDesignRandomized==TRUE], control = lmerControl(optimizer = "bobyqa"))
+summary(choicemodel.base.VarySubSlope.rand)
+summary(choicemodel.choice.VarySubSlope.rand)
+h1a.anova<-anova(choicemodel.base.VarySubSlope.rand,choicemodel.choice.VarySubSlope.rand)
+
+h1a.anova.pal<-h1a.anova$`Pr(>Chisq)`[2]
+
+```
+
+a)  with random construal order
+   - No, $p=$ `r format.pval(h1a.anova.pal)`
+   
+b)  with the abstract to concrete and the concrete to abstract construal order conditions. The latter may be predicted by Yi et al. (2017).
+
+```{r, include=FALSE}
+
+getanovapval<-function(anovaobj){return(format.pval(anovaobj$`Pr(>Chisq)`[2],digits = 2))}
+  
+choicemodel.base.VarySubSlope.AF<-lmer(AbstractionLevel~scale(LogKIndiff)+salienceCondition+ (1+ChoiceIsLL|SubjectUniqueID),
+                                       data.itc.bestsubj[BlockDesignAbstractFirst==TRUE])
+
+
+choicemodel.base.VarySubSlope.CF<-lmer(AbstractionLevel~scale(LogKIndiff)+salienceCondition+ (1+ChoiceIsLL|SubjectUniqueID),
+                                       data.itc.bestsubj[BlockDesignConcreteFirst==TRUE], 
+                                       control = lmerControl(optimizer="Nelder_Mead"))
+
+choicemodel.choice.VarySubSlope.AF<-lmer(AbstractionLevel~scale(LogKIndiff) + ChoiceIsLL+salienceCondition+
+                                           (1+ChoiceIsLL|SubjectUniqueID),
+                                         data.itc.bestsubj[BlockDesignAbstractFirst==TRUE], control = lmerControl(optimizer = "bobyqa"))
+
+choicemodel.choice.VarySubSlope.CF<-lmer(AbstractionLevel~ChoiceIsLL+scale(LogKIndiff)+salienceCondition+
+                                           (1+ChoiceIsLL|SubjectUniqueID),
+                                         data.itc.bestsubj[BlockDesignConcreteFirst==TRUE],control=lmerControl(optimizer ='Nelder_Mead'))
+
+choicemodel.choice.VarySubSlope.TF.CF<-lmer(AbstractionLevel~ChoiceIsLL*TaskArrangement+scale(LogKIndiff)+salienceCondition+
+                                           (1+ChoiceIsLL|SubjectUniqueID),
+                                         data.itc.bestsubj[BlockDesignConcreteFirst==TRUE],control=lmerControl(optimizer ='Nelder_Mead'))
+
+
+choicemodel.choice.VarySubSlope.Group.CF<-lmer(AbstractionLevel~ChoiceIsLL*Group+scale(LogKIndiff)+salienceCondition+
+                                           (1+ChoiceIsLL|SubjectUniqueID),
+                                         data.itc.bestsubj[BlockDesignConcreteFirst | BlockDesignAbstractFirst],control=lmerControl(optimizer ='bobyqa'))
+
+summary(choicemodel.choice.VarySubSlope.AF)
+h1b1.anova<-anova(choicemodel.base.VarySubSlope.AF,choicemodel.choice.VarySubSlope.AF)
+
+
+summary(choicemodel.choice.VarySubSlope.TF.CF)
+summary(choicemodel.choice.VarySubSlope.Group.CF)
+h1b2.anova<-anova(choicemodel.base.VarySubSlope.CF,choicemodel.choice.VarySubSlope.CF,choicemodel.choice.VarySubSlope.TF.CF)
+
+
+ggplot(data.itc.bestsubj[(BlockDesignConcreteFirst|BlockDesignAbstractFirst)] %>% .[,.(PropLLChoices=sum(ChoiceIsLL,na.rm = TRUE)/.N),by=.(SubjectUniqueID,AbstractionLevel,Group)],aes(x=AbstractionLevel,y=PropLLChoices,group=interaction(AbstractionLevel,Group),color=Group)
+       )+geom_boxplot()+#geom_jitter(width=0.1,height=0,alpha=0.5)+
+  labs(title="Proportion of LL Choices by Abstraction Level",y="Proportion of Larger Later choices")
+
+
+```
+  
+  - Yes: while the Abstract to Concrete design does NOT work, $p=$ `r getanovapval(h1b1.anova)`, the Concrete to Abstract Design does: $p=$ `r getanovapval(h1b2.anova)`
+
+
+```{r, include=FALSE}
+
+choicemodel.base.VarySubSlope.inter<-lmer(AbstractionLevel~LogKIndiff+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),
+                                          data.itc.bestsubj[TaskArrangementBlocked==FALSE], control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope.inter<-lmer(AbstractionLevel~ChoiceIsLL+LogKIndiff+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),
+                                            data.itc.bestsubj[TaskArrangementBlocked==FALSE], control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope.inter)
+summary(choicemodel.choice.VarySubSlope.inter)
+h1d.anova<-anova(choicemodel.base.VarySubSlope.inter,choicemodel.choice.VarySubSlope.inter)
+
+```
+
+d) This relationship will be observable in the interleaved conditions
+  - We might expect this because the interleaved design will have a more immediate impact on the construal condition.
+  - No,  $p=$ `r getanovapval(h1d.anova)`
+  
+```{r, include=FALSE}
+
+choicemodel.base.VarySubSlope.inter<-lmer(AbstractionLevel~LogKIndiff+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[TaskArrangementBlocked==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope.inter<-lmer(AbstractionLevel~ChoiceIsLL+LogKIndiff+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[TaskArrangementBlocked==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope.inter)
+summary(choicemodel.choice.VarySubSlope.inter)
+h1e.anova<-anova(choicemodel.base.VarySubSlope.inter,choicemodel.choice.VarySubSlope.inter)
+
+```
+
+e) This relationship will be observable in the blocked conditions
+  - we might expect this because subjects are continuously exposed to a particular abstraction level
+  - No, $p=$ `r getanovapval(h1e.anova)`
+  
+  
+# Exploratory
+
+I subsequently tried examining a smaller subset: *only* subjects who were in the Concrete First condition (as in Yi et al., 2017), *and* whose construal and ITC trials were blocked, rather than interleaved.
+
+
+```{r, echo=FALSE}
+
+choicemodel.base.VarySubSlope.blockedconcrete<-lmer(AbstractionLevel~scale(LogKIndiff)+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[TaskArrangementBlocked==TRUE & BlockDesignConcreteFirst==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope.blockedconcrete<-lmer(AbstractionLevel~ChoiceIsLL+scale(LogKIndiff)+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[TaskArrangementBlocked==TRUE & BlockDesignConcreteFirst==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope.blockedconcrete)
+summary(choicemodel.choice.VarySubSlope.blockedconcrete)
+blockedconcrete.anova<-anova(choicemodel.base.VarySubSlope.blockedconcrete,choicemodel.choice.VarySubSlope.blockedconcrete)
+
+blockedconcrete.anova
+
+ggplot(data.itc.bestsubj[TaskArrangementBlocked==TRUE & BlockDesignConcreteFirst==TRUE] %>% .[,.(PropLLChoices=sum(ChoiceIsLL,na.rm = TRUE)/.N),by=.(SubjectUniqueID,AbstractionLevel)],aes(x=AbstractionLevel,y=PropLLChoices,group=AbstractionLevel,color=AbstractionLevel)
+       )+geom_boxplot()+geom_jitter(width=0.3,height=0,alpha=0.5)+labs(title="Proportion of LL Choices by Abstraction Level",y="Proportion of Larger Later choices")
+
+
+```
+
+This is actually a dramatic improvement over the performance of the previous model, at least in terms of the anova.
+
+
+```{r OriginalModelsWithAllSubjects, echo=FALSE}
+
+choicemodel.base.VarySubSlope.blockedconcrete.allsubjs<-lmer(AbstractionLevel~scale(LogKIndiff)+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc[TaskArrangementBlocked==TRUE & BlockDesignConcreteFirst==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+choicemodel.choice.VarySubSlope.blockedconcrete.allsubjs<-lmer(AbstractionLevel~ChoiceIsLL+scale(LogKIndiff)+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc[TaskArrangementBlocked==TRUE & BlockDesignConcreteFirst==TRUE], control = lmerControl(optimizer = "Nelder_Mead"))
+summary(choicemodel.base.VarySubSlope.blockedconcrete.allsubjs)
+summary(choicemodel.choice.VarySubSlope.blockedconcrete.allsubjs)
+blockedconcrete.anova<-anova(choicemodel.base.VarySubSlope.blockedconcrete.allsubjs,choicemodel.choice.VarySubSlope.blockedconcrete.allsubjs)
+
+
+```
+
+# Further followup
+
+One thing that came out out of our previous test was whether the Abstract-Concrete ordering is really an important interaction variable for assessing the effect of Abstraction Level.
+
+Can we run an interaction model? Let's include both block design conditions (AbstractFirst and ConcreteFirst), and see if the interaction term is significant.
+
+```{r, echo=FALSE}
+
+choicemodel.base.VarySubSlope.blockedconcrete<-
+  lmer(AbstractionLevel~
+         BlockDesignConcreteFirst+scale(LogKIndiff)+TrialIdItc+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),
+       data.itc[TaskArrangementBlocked==TRUE & (BlockDesignConcreteFirst==TRUE | BlockDesignAbstractFirst==TRUE)], 
+       control = lmerControl(optimizer = "Nelder_Mead"))
+
+choicemodel.choice.VarySubSlope.blockedconcrete<-
+  lmer(AbstractionLevel~
+         ChoiceIsLL*BlockDesignConcreteFirst+scale(LogKIndiff)+TrialIdItc+
+         salienceCondition+
+         (1+ChoiceIsLL|SubjectUniqueID),
+       data.itc[TaskArrangementBlocked==TRUE & (BlockDesignConcreteFirst==TRUE | BlockDesignAbstractFirst==TRUE)], 
+       control = lmerControl(optimizer = "Nelder_Mead"))
+#summary(choicemodel.base.VarySubSlope.blockedconcrete) #the base 
+summary(choicemodel.choice.VarySubSlope.blockedconcrete)
+blockedconcrete.anova<-anova(choicemodel.base.VarySubSlope.blockedconcrete,choicemodel.choice.VarySubSlope.blockedconcrete)
+blockedconcrete.anova
+# Seems to work out!
+
+ggplot(data.itc[TaskArrangementBlocked==TRUE & (BlockDesignConcreteFirst|BlockDesignAbstractFirst)] %>% .[,.(PropLLChoices=sum(ChoiceIsLL,na.rm = TRUE)/.N),by=.(SubjectUniqueID,AbstractionLevel,Group,runid)],aes(x=runid,y=PropLLChoices,group=interaction(AbstractionLevel,runid),color=Group)
+       )+geom_boxplot()+#geom_jitter(width=0.1,height=0,alpha=0.5)+
+  labs(title="Proportion of LL Choices by Abstraction Level",y="Proportion of Larger Later choices")
+
+
+```
+
+
+
+```{r, echo=FALSE}
+
+choicemodel.base.VarySubSlope.blockedconcrete<-lmer(AbstractionLevel~BlockDesignConcreteFirst+scale(LogKIndiff)+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[TaskArrangementBlocked==TRUE & (BlockDesignConcreteFirst==TRUE | BlockDesignAbstractFirst==TRUE)], control = lmerControl(optimizer = "Nelder_Mead"))
+
+choicemodel.choice.VarySubSlope.blockedconcrete<-lmer(AbstractionLevel~ChoiceIsLL*BlockDesignConcreteFirst+scale(LogKIndiff)+salienceCondition+(1+ChoiceIsLL|SubjectUniqueID),data.itc.bestsubj[TaskArrangementBlocked==TRUE & (BlockDesignConcreteFirst==TRUE | BlockDesignAbstractFirst==TRUE)], control = lmerControl(optimizer = "Nelder_Mead"))
+#summary(choicemodel.base.VarySubSlope.blockedconcrete) #the base 
+summary(choicemodel.choice.VarySubSlope.blockedconcrete)
+blockedconcrete.anova<-anova(choicemodel.base.VarySubSlope.blockedconcrete,choicemodel.choice.VarySubSlope.blockedconcrete)
+blockedconcrete.anova
+
+
+```
+
