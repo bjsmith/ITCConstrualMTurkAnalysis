@@ -8,7 +8,7 @@ library(dplyr)
 # var SALIENCE_CONDITION_DELAY_SALIENT=1;
 load("system_settings.RData")
 #save("~/Google Drive/neural-construal-level/data/ITCConstrual_mTurkExp/",file="system_settings.RData")
-
+#data.directory<-"/expdata/bensmith/neural-construal/data/ITCConstrual_mTurkExp/";save(data.directory,file="system_settings.RData")
 
 
 
