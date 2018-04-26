@@ -5,3 +5,5 @@
 .Rdata
 .html
 .nb.html
+*.RData
+*.Rdata
