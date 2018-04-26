@@ -6,7 +6,11 @@ library(dplyr)
 # var CHOICE_LL="LL";//CHOICE_LL=2;
 # var SALIENCE_CONDITION_AMOUNT_SALIENT=0;
 # var SALIENCE_CONDITION_DELAY_SALIENT=1;
-data.directory<-"~/Google Drive/neural-construal-level/data/ITCConstrual_mTurkExp/"
+load("system_settings.RData")
+#"~/Google Drive/neural-construal-level/data/ITCConstrual_mTurkExp/"
+
+
+
 
 preprocess_version<-"20170412g"
 preprocess_filename<-paste0(data.directory,"preprocess_cache_",preprocess_version,".RData")
