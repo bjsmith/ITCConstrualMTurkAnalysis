@@ -7,7 +7,7 @@ library(dplyr)
 # var SALIENCE_CONDITION_AMOUNT_SALIENT=0;
 # var SALIENCE_CONDITION_DELAY_SALIENT=1;
 load("system_settings.RData")
-#"~/Google Drive/neural-construal-level/data/ITCConstrual_mTurkExp/"
+#save("~/Google Drive/neural-construal-level/data/ITCConstrual_mTurkExp/",file="system_settings.RData")
 
 
 
