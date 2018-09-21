@@ -154,3 +154,7 @@ model.stan.ALL<-stan_glmer(Choice01~
 
 
 ```
+
+```{r}
+model.stan.ALL
+```

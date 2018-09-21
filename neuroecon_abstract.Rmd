@@ -1,0 +1,93 @@
+---
+title: Smaller Sooner over Larger Later options are more preferred when delay rather
+  than amount is salient in intertemporal choice
+subtitle: Ben Smith, Eustace Hsu, Olivia De Santis, Xiaobei Zhang, & John R. Monterosso
+output:
+  html_document: default
+  html_notebook: default
+---
+
+<!-- report the dimensional salience result -->
+```{r formatting, include=FALSE}
+format.percent <- function (proportion){
+  return(round(proportion*100))
+}
+```
+
+
+```{r load_data, warning=FALSE, include=FALSE}
+source("load_raw_data.R")
+
+
+subj.count.raw<-dim(data.itc.raw[,.N,by=SubjectUniqueID])[1] #all subjects
+subj.count<-dim(data.itc[,.N,by=SubjectUniqueID])[1] #subjects not excluded by our pre-registered criteria
+subj.count.bestsubj<-dim(data.itc.bestsubj[,.N,by=SubjectUniqueID])[1] #subjects not excluded by post-hoc criteria
+
+#load("../../../data/ITCConstrual_mTurkExp/stanmodel.RData")
+load(file="../../../data/ITCConstrual_mTurkExp/stanmodel_rr_bestsubj.RData")
+
+model.stan.ALL<-model.stan.rr.bestsubj
+#in the DelaySalient condition the log odds of choosing SmallerSooner is 
+#mean_val[1]+ (mean_val)[5]
+#; the odds of choosing LL over SS is 
+#exp(mean_val[1]+mean_val[5])
+# is about 0.8 to 1
+
+#and the odds of choosing LL over SS in the DelaySalient condition are 74% (95% CI [73% to 81%]) compared to the Amount Salient condition.
+#summary(model.stan.ALL)[5,c(1,4:8)]
+odds.ratio.LLoverSS.DelayvsAmount<-exp(summary(model.stan.ALL)[5,c(1,4:8)])
+
+#and we can talk about the odds within the DelaySalient condition alone by adding the DelaySalient value to the intercept:
+summary(model.stan.ALL)[1,c(1,4:8)]+summary(model.stan.ALL)[5,c(1,4:8)]
+#this does not appear to be significant. That's actually what we want.
+
+
+```
+
+
+We gave `r subj.count.raw` subjects on mTurk 80 trials of an intertemporal choice task<!-- in order to identify the effect of Delay and Amount Salience on outcome. We included-->, including several preregistered manipulations and predictions (https://osf.io/tyhva/). We found significant differences in Smaller Sooner vs. Larger Later choice dependent on Amount or Delay Salience, and Hypotheticality combined with magnitude.
+
+
+```{r design, include=FALSE}
+
+ConditionDS_amounts<-model.stan.ALL$data[salienceCondition=="DelaySalient",.N,by=.(LLamount,SSamount)]
+ConditionDS_delays_min<-model.stan.ALL$data[salienceCondition=="DelaySalient",.(LLdelay,SSdelay)] %>% apply(.,2,min)
+ConditionDS_delays_max<-model.stan.ALL$data[salienceCondition=="DelaySalient",.(LLdelay,SSdelay)] %>% apply(.,2,max)
+ConditionDS_delays_mean<-model.stan.ALL$data[salienceCondition=="DelaySalient",.(LLdelay,SSdelay)] %>% apply(.,2,mean)
+
+
+ConditionAS_delays<-model.stan.ALL$data[salienceCondition=="AmountSalient",.N,by=.(LLdelay,SSdelay)]
+ConditionAS_amounts<-model.stan.ALL$data[salienceCondition=="AmountSalient" & RewardReality=="Hypothetical",.(LLamount,SSamount)]
+ConditionAS_amounts_min<-ConditionAS_amounts %>% apply(.,2,min)
+ConditionAS_amounts_max<-ConditionAS_amounts %>% apply(.,2,max)
+ConditionAS_amounts_mean<-ConditionAS_amounts %>% apply(.,2,mean)
+
+```
+<!-- explain concept of dimensional salience -->
+In the Delay Salient condition, our task varied Delay while holding Amount constant; conversely, in our Amount Salient condition, our task varied Amount while holding Delay constant. In the Hypothetical condition, in the Delay Salient Condition, subjects were always offered a hypothetical choice between \$20 in 1 to 9 days, or \$30 in a longer period (mean=54 days), determined by a calculated indifference point according to a hyperbolic discounting model; in the Amount Salient condition, subjects were offered a choice between a smaller amount (\$1.67 to \$39.39, m=\$10.75) in 5 days and a larger amount (\$20 to \$40) in 50 or 60 days (this value was always constant within subjects). <!--Thus, we were able to manipulate whether Delay or Amount was salient by manipulating which of these dimensions changed from one trial to the next.--> In the Real condition, contingencies were the same except amounts were actually paid out and were only 2% of the amounts offered in the hypothetical condition.<!--, and these amounts were actually paid out to subjects after the specified delay.-->
+<!-- the task -->
+<!--Our task used an incremental design to select a k value at the subjects' indifference point.-->
+
+
+
+
+
+
+The analysis included `r subj.count.bestsubj` subjects, after removing `r subj.count.raw-subj.count` subjects according to preregistered criteria and an additional `r subj.count-subj.count.bestsubj` subjects who did not show evidence of a consistent discount rate according to a post-hoc threshold.<!--in which the standard error of the coefficient of log k indifference points predicting choice was below zero in both the Delay Salient and Amount Salient condition.-->
+
+In line with our pre-registered hypothesis, a Bayesian hierarchical logistic regression showed <!-- Sooner appeared to be different for the Delay Salient compared to Amount Salient condition--> 
+the odds of choosing LargerLater over SmallerSooner in the Delay Salient condition were `r format.percent(odds.ratio.LLoverSS.DelayvsAmount[[1]])`% of those in the Amount Salient condition (95% CI=[`r format.percent(odds.ratio.LLoverSS.DelayvsAmount[[2]])`%, `r format.percent(odds.ratio.LLoverSS.DelayvsAmount[[6]])`%]), controlling for covariates.<!--. The regression controlled for abstraction Level, trial sequence, the indifference point used to set set the rewards for each trial, and also added slopes for the latter two values within-subject, and after these controls were applied,--> The odds of selecting Larger Later vs. Smaller Sooner in either Salience Condition did not differ from 1.
+ 
+```{r graph}
+#it's by subject so we really should just do one data point on the graph per subject.
+graph.data<-model.stan.ALL$data[,.(LLChoice=sum(Choice=="LL"),SSChoice=sum(Choice=="SS")),by=.(SubjectUniqueID,salienceCondition)]
+graph.data$SSProp<-graph.data$SSChoice/(graph.data$SSChoice+graph.data$LLChoice)
+graph.data.means<-graph.data %>% group_by(salienceCondition) %>% summarise(mean_prop=mean(SSProp))
+ggplot(graph.data,aes(x=salienceCondition,y=SSProp,color=salienceCondition))+geom_violin()+geom_hline(graph.data.means,
+                                                                                                      mapping=aes(yintercept=mean_prop,color=salienceCondition,group=salienceCondition))+labs(title="Mean proportion of SmallerSooner choices in each condition for each subject")
+
+```
+
+<!-- NEED TO REPORT HYPOTHETICAL VS REAL RESULT -->
+
+Our finding suggests that<!--, assuming a hyperbolic discounting model,--> sensitivity to reward may differ based on whether delay or amount is varied from trial to trial and thus made salient. Further research should investigate the mechanisms that manipulate this sensitivity. We propose that subjects' ability to process both Delay and Amount simultaneously may depend on their state reward responsivity, which could depend on satiation state. A study is currently under way manipulating glucose level. We predict that subjects under glucose depletion will myopically focus on either Delay or Amount, and will thus differ more in their SS to LL choice ratio across conditions compared to subjects not under sugar depletion, who will be able to focus more on Delay and Amount in both conditions.

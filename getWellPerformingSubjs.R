@@ -1,3 +1,4 @@
+
 getWellPerformingSubjs <- function(data.itc){
   ## How about split by salienceCondition
   #Doing this individually because I want to get standard errors.
@@ -24,9 +25,9 @@ getWellPerformingSubjs <- function(data.itc){
   
   
   ggplot(by.subject.scale.logstartingK.scSplit.param,aes(x=Estimate))+
-    facet_wrap(~salienceCondition,ncol = 1,nrow=2)+
+    facet_wrap(~salienceCondition,ncol = 2,nrow=1)+
     geom_histogram(binwidth=0.5)+
-    labs(x="Coefficient of log K")+geom_vline(xintercept = 0)+coord_cartesian(xlim=c(-5,10))
+    labs(x="log K beta coefficient",y="# of subjects")+geom_vline(xintercept = 0)+coord_cartesian(xlim=c(-5,10))
   
   #keep subjects who EITHER have amountSalient or DelaySalient with 1 SE above zero.
   by.subject.scale.logstartingK.scSplit.param$EstM1SE<-by.subject.scale.logstartingK.scSplit.param$Estimate-by.subject.scale.logstartingK.scSplit.param$Std..Error

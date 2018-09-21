@@ -1,0 +1,132 @@
+---
+title: "Even presentation notes"
+output: html_notebook
+---
+
+These are the notes for the even presentation.
+
+How should we display the results?
+
+I think we say the hierarchial design we wanted, explain that it didn't work as a linear model, and then go straight to the Bayesian hierarchical model using rstanarm.
+
+```{r setup}
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(data.table)
+
+# linearmodel.bestsubj<-
+#   glmer(Choice01~
+#            AbstractionLevel+scale(TrialIdItcSC)+
+#            scale(logStartingK)+
+#            salienceCondition*scale(logStartingK)+
+#             AbstractionLevel*scale(logStartingK)
+#            (1+scale(TrialIdItcSC)+
+#               salienceCondition+
+#               #scale(LogKIndiff)+
+#               scale(logStartingK)
+#             |SubjectUniqueID),
+#        data.itc.bestsubj, family=binomial)
+# summary(linearmodel.bestsubj)
+```
+```{r load_models}
+#load models
+even_folder<-"/Users/benjaminsmith/Google Drive/neural-construal-level/data/ITCConstrual_mTurkExp/even_presentation/"
+load(paste0(even_folder,"lm.bestsubj.Rdata"))
+load(paste0(even_folder,"lm.bestsubj.interact.Rdata"))
+load("../../../data/ITCConstrual_mTurkExp/stanmodel-interact.RData")
+```
+
+We also need a model that looks just specifically at the instance where Concrete precedes Abstract.
+
+Read up about "how to represent odds ratios graphically"
+
+Could show the density plot of SS/LL choices, or a cumulative plot graph of choice against Hypothetical/Real.
+
+Boxplots might also do the trick.
+
+Definitely report odds. See if we can do what Eustace suggested and see if we can report *indifference point* for each group (look up the code for the screening function, maybe that'lll describe how to do it)
+
+
+# First look at teh data
+```{r descriptives }
+
+
+ggplot(data.itc.bestsubj[,.N,by=.(SubjectUniqueID,Choice)],aes(x=Choice,y=N,color=Choice))+geom_boxplot()+labs(title="Larger Later and Smaller Sooner Choices by Subject",y="Choices per subject")
+data.itc.bestsubj[,.N,by=.(SubjectUniqueID,Choice)] %>% .[,.(M=mean(N),SD=sd(N)),by=Choice]
+
+exp(summary(linearmodel.bestsubj)$coefficients[,1])
+```
+
+
+# First pass
+```{r model1}
+#model 1
+summary(linearmodel.bestsubj)
+
+#let's take a look at SalienceCondition and LL
+#just keep it simple here.
+ggplot(data.itc.bestsubj[,.N,by=.(SubjectUniqueID,Choice,salienceCondition)],aes(x=Choice,y=N,color=salienceCondition))+geom_boxplot()+
+  labs(y="Number of LargerLater and SmallerSooner choices",title="Number of LargerLater and SmallerSooner choices\nsubject made by Salience Condition")
+
+scDiff<-data.itc.bestsubj[,.N,by=.(SubjectUniqueID,Choice,salienceCondition)] %>% tidyr::spread(key = Choice,value=N)
+scDiff$SSMinusLL<-scDiff$SS-scDiff$LL
+
+ggplot(scDiff,aes(x=salienceCondition,y=SSMinusLL,color=salienceCondition))+geom_boxplot()+
+  labs(y="SmallerSooner Minus LargerLater choices by subject",title="Difference in SmallerSooner and LargerLater choices\nsubject made by Salience Condition")
+
+```
+
+```{r Model2}
+#model 2
+summary(linearmodel.rr.interact.bestsubj)
+anova(linearmodel.bestsubj,linearmodel.rr.interact.bestsubj)
+```
+
+```{r Salience}
+exp(summary(linearmodel.bestsubj)$coefficients[,1])
+exp(summary(linearmodel.rr.interact.bestsubj)$coefficients[,1])
+```
+
+```{r RewardReality}
+exp(summary(linearmodel.bestsubj)$coefficients[,1])
+exp(summary(linearmodel.rr.interact.bestsubj)$coefficients[,1])
+
+logStartingKMeans<-data.itc.bestsubj[,.(MeanLogStartingK=mean(logStartingK)),
+                                          by=.(SubjectUniqueID,RewardReality)]
+
+llssDiff2<-data.itc.bestsubj[,.(ChoiceCount=.N),
+                                          by=.(SubjectUniqueID,Choice,RewardReality)]%>% tidyr::spread(key = Choice,value=ChoiceCount)
+llssDiff2$SSminusLL<-llssDiff2$SS-llssDiff2$LL
+llssDiff2$PropSS<-llssDiff2$SS/(llssDiff2$SS+llssDiff2$LL)
+llssDiff2<-merge(llssDiff2,logStartingKMeans,by=c("SubjectUniqueID","RewardReality"))
+
+ggplot(llssDiff2,aes(x=MeanLogStartingK,y=PropSS,color=RewardReality))+geom_point()+ geom_smooth(method = "lm")
+
+#hmmm. Must be within-subject?
+
+ggplot(data.itc.bestsubj,aes(x=RewardReality,y=scale(logStartingK),color=Choice))+geom_boxplot()+
+  labs(title="log K by Reward Reality and Choice",y="Normalized Log(K)")
+names(t.test(logStartingK~Choice,data.itc.bestsubj))
+cor.test(data.itc.bestsubj$logStartingK,data.itc.bestsubj$PropSS)
+
+rrdata<-
+  data.itc.bestsubj[,.(MeanLogStartingK=mean(logStartingK),
+                       SSMinusLLChoices=sum(Choice=="SS")-sum(Choice=="LL")
+                      ,SubjLogKChoiceTScore=t.test(scale(logStartingK)[Choice=="SS"],scale(logStartingK)[Choice=="LL"])$statistic
+                      #,logStartingKChoiceCor<-cor.test((sum(Choice=="SS")-sum(Choice=="LL")),logStartingK)
+                      ), by=.(SubjectUniqueID,RewardReality)]
+#ggplot(,aes(x=scale(MeanLogStartingK),y=SSMinusLLChoices,color=RewardReality))+geom_point()
+
+#now we have a WITHIN SUBJECT measure of the relationship between Choice and logStartingK, so we should plot that against reward reality.
+t.test(SubjLogKChoiceTScore~RewardReality,rrdata)
+ggplot(rrdata,aes(x=RewardReality,y=SubjLogKChoiceTScore))+geom_boxplot()
+```
+```{r Model3}
+summary(model.stan.rr.bestsubj.concrete_to_abstract)[1:7,]
+
+
+
+
+```
+

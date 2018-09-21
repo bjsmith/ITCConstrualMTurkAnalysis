@@ -48,7 +48,8 @@ source("generate_bonus_table.R")
 generate_bonus_table(
   subjlist_wips_tp_tpqonly,
   as.POSIXct(bonus_date),
-  paste0(data.directory,"raw_files/exp20180330/")
+  paste0(data.directory,"raw_files/exp20180330/"),
+  startdate = bonus_start_date
   )
 
 #if subjects didn't even get a qualtrics response ID, we can't give them a bonus.

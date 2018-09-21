@@ -38,7 +38,8 @@ source("generate_bonus_table.R")
 generate_bonus_table(
   subjlist_wips_tp,
   as.POSIXct(bonus_date),
-  paste0(data.directory,"raw_files/exp20180329/")
+  paste0(data.directory,"raw_files/exp20180329/"),
+  startdate = bonus_start_date
 )
 
 #now the unmatched subjects who are recorded in my TurkPrime data

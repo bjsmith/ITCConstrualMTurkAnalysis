@@ -41,5 +41,6 @@ source("generate_bonus_table.R")
 generate_bonus_table(
   data.table(subjlist_wips_tp),
   as.POSIXct(bonus_date),
-  paste0(data.directory,"raw_files/exp20180327/")
+  paste0(data.directory,"raw_files/exp20180327/"),
+  startdate = bonus_start_date
 )

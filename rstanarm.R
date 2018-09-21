@@ -62,8 +62,8 @@ model.stan.ALL<-stan_glmer(Choice01~
                            family = binomial(link = "logit"),
                            chains = 8, cores = parallel::detectCores(), seed = 42)
 summary(model.stan.ALL)
-model.stan.ALL$coefficients
-save(model.stan.ALL,file="stanmodel.RData")
+
+save( model.stan.ALL,file="../../../data/ITCConstrual_mTurkExp/stanmodel.RData")
 #but if there is indeed some kind of interaction effect of Abstraction, then
 #this would be fully accounted for by the individual-level TrialIdItcSC
 
